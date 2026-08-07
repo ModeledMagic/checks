@@ -178,3 +178,8 @@ dist
 .aider*
 
 *.diff.png
+
+# Workspace task and Bun caches
+.turbo/
+.bun/
+bun-debug.log*
