@@ -25,7 +25,9 @@
     "circuit-to-svg": "^0.0.388",
     "debug": "^4.3.5",
     "format-si-unit": "^0.0.7",
+    "react": "^19.2.8",
     "tscircuit": "^0.0.1786",
+    "transformation-matrix": "^3.1.0",
     "tsup": "^8.2.3",
     "zod": "^3.23.8"
   },
