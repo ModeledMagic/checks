@@ -13,6 +13,7 @@ import {
 } from "@tscircuit/math-utils"
 import type {
   AnyCircuitElement,
+  PCBKeepout,
   PcbPlatedHole,
   PcbSmtPad,
   PcbTrace,
@@ -29,16 +30,33 @@ import type { Bounds } from "lib/data-structures/SpatialIndex"
 import { DEFAULT_TRACE_THICKNESS } from "lib/drc-defaults"
 
 export type PadElement = PcbSmtPad | PcbPlatedHole
+export type PadClearanceElement = PadElement | PcbVia
+export type CopperClearanceElement = PadClearanceElement | PCBKeepout
 
-export const formatMm = (value: number) => {
-  const rounded = Math.round(value * 1000) / 1000
-  return `${Number(rounded.toFixed(3))}mm`
+export const getPadBounds = (pad: CopperClearanceElement): Bounds => {
+  if (pad.type === "pcb_keepout") {
+    if (pad.shape === "circle") {
+      return {
+        minX: pad.center.x - pad.radius,
+        minY: pad.center.y - pad.radius,
+        maxX: pad.center.x + pad.radius,
+        maxY: pad.center.y + pad.radius,
+      }
+    }
+
+    return {
+      minX: pad.center.x - pad.width / 2,
+      minY: pad.center.y - pad.height / 2,
+      maxX: pad.center.x + pad.width / 2,
+      maxY: pad.center.y + pad.height / 2,
+    }
+  }
+
+  return getBoundsOfPcbElements([pad])
 }
 
-export const getPadBounds = (pad: PadElement): Bounds =>
-  getBoundsOfPcbElements([pad])
-
-export const getPadCenter = (pad: PadElement) => {
+export const getPadCenter = (pad: CopperClearanceElement) => {
+  if (pad.type === "pcb_keepout") return pad.center
   const bounds = getPadBounds(pad)
   return midpoint(
     { x: bounds.minX, y: bounds.minY },
@@ -46,20 +64,22 @@ export const getPadCenter = (pad: PadElement) => {
   )
 }
 
-export const getPadRadius = (pad: PadElement) => {
+export const getPadRadius = (pad: CopperClearanceElement) => {
+  if (pad.type === "pcb_keepout" && pad.shape === "circle") return pad.radius
   const bounds = getPadBounds(pad)
   return Math.min(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY) / 2
 }
 
-export const isCircularPad = (pad: PadElement) => pad.shape === "circle"
+export const isCircularPad = (pad: CopperClearanceElement) =>
+  pad.type === "pcb_via" || pad.shape === "circle"
 
 const isPillPad = (
-  pad: PadElement,
+  pad: CopperClearanceElement,
 ): pad is Extract<PcbSmtPad, { shape: "pill" | "rotated_pill" }> =>
   pad.type === "pcb_smtpad" &&
   (pad.shape === "pill" || pad.shape === "rotated_pill")
 
-const getCircleShape = (pad: PadElement) => {
+const getCircleShape = (pad: CopperClearanceElement) => {
   const center = getPadCenter(pad)
   return {
     kind: "circle" as const,
@@ -69,7 +89,35 @@ const getCircleShape = (pad: PadElement) => {
   }
 }
 
-const getPolygonShape = (pad: PadElement) => {
+const getPolygonShape = (pad: CopperClearanceElement) => {
+  if (pad.type === "pcb_keepout") {
+    if (pad.shape !== "rect") {
+      throw new Error(`Expected rectangular keepout, got ${pad.shape}`)
+    }
+
+    return {
+      kind: "polygon" as const,
+      points: [
+        {
+          x: pad.center.x - pad.width / 2,
+          y: pad.center.y - pad.height / 2,
+        },
+        {
+          x: pad.center.x + pad.width / 2,
+          y: pad.center.y - pad.height / 2,
+        },
+        {
+          x: pad.center.x + pad.width / 2,
+          y: pad.center.y + pad.height / 2,
+        },
+        {
+          x: pad.center.x - pad.width / 2,
+          y: pad.center.y + pad.height / 2,
+        },
+      ],
+    }
+  }
+
   if (
     pad.type === "pcb_smtpad" &&
     (pad.shape === "polygon" || pad.shape === "rotated_rect")
@@ -103,7 +151,10 @@ const getPolygonShape = (pad: PadElement) => {
   }
 }
 
-export const getPadToPadGap = (padA: PadElement, padB: PadElement) => {
+export const getPadToPadGap = (
+  padA: CopperClearanceElement,
+  padB: CopperClearanceElement,
+) => {
   if (isPillPad(padA) && isPillPad(padB)) {
     const pillA = getPillCenterLineForPad(padA)
     const pillB = getPillCenterLineForPad(padB)
